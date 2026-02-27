@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CarSense — דמו</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .video-container {
+            max-width: 800px;
+            margin: 0 auto;
+            border: 2px solid #444;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        /* Walkthrough styles */
+        .walk-stage { background: linear-gradient(180deg,#0b1220,#071018); border-radius:8px; padding:18px; min-height:260px; }
+        .cars-row { display:flex; gap:14px; justify-content:center; align-items:flex-start; }
+        .car-card { width:160px; height:110px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.04); border-radius:8px; display:flex; align-items:center; justify-content:center; position:relative; transform:translateY(12px); opacity:0; }
+        .car-card .img { width:86%; height:56px; background:linear-gradient(90deg,#2b3137,#15181b); border-radius:6px; box-shadow:inset 0 -6px 18px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; }
+        .car-card .car-title { color:#e6eef8; font-weight:700; font-size:13px; direction:rtl; text-align:center; }
+        .car-card.show { opacity:1; transform:none; transition:all .6s cubic-bezier(.22,.9,.39,1); }
+        .car-card.pulse { box-shadow:0 8px 28px rgba(0,0,0,0.6), 0 0 0 6px rgba(25,135,84,0.06); transform:translateY(-6px) scale(1.03); }
+        .scans-panel { margin:0 auto; max-width:520px; color:#d1d5db; opacity:0; transform:translateY(6px); transition:all .6s; }
+        .scans-panel.show { opacity:1; transform:none; }
+        .scans-title { font-weight:700; color:#fff; margin-bottom:8px; }
+        .scan-item { background:rgba(255,255,255,0.02); padding:8px 10px; border-radius:6px; margin-top:6px; color:#cbd5e1; }
+        .add-panel { text-align:center; color:#cbd5e1; opacity:0; transform:translateY(8px); transition:all .6s; }
+        .add-panel.show { opacity:1; transform:none; }
+        .form-line { font-weight:700; color:#fff; margin-bottom:8px; }
+        .form-mini .pill { display:inline-flex; align-items:center; justify-content:center; width:110px; height:28px; background:rgba(255,255,255,0.04); margin:0 6px; border-radius:6px; vertical-align:middle; color:#e6eef8; font-size:13px; }
+        .form-mini .pill.add { animation:pop .5s ease forwards; }
+        @keyframes pop { from { transform:scale(.6); opacity:0 } to { transform:none; opacity:1 } }
+        .listen-panel { display:flex; gap:12px; align-items:center; justify-content:center; margin-top:6px; opacity:0; transform:translateY(8px); transition:all .6s; }
+        .listen-panel.show { opacity:1; transform:none; }
+        .listen-badge { background:#198754; color:#fff; padding:8px 12px; border-radius:999px; font-weight:700; }
+        .listening-dot { width:18px; height:18px; border-radius:50%; background:#ff6b6b; box-shadow:0 0 0 rgba(255,107,107,0.6); opacity:0; }
+        .listening-dot.active { animation:spinPulse 1s infinite; opacity:1 }
+        @keyframes spinPulse { 0% { box-shadow:0 0 0 0 rgba(255,107,107,0.6) } 70% { box-shadow:0 0 0 12px rgba(255,107,107,0) } 100% { box-shadow:0 0 0 0 rgba(255,107,107,0) } }
+        .walk-footer { margin-top:12px }
+    </style>
+</head>
+
+<body class="bg-dark text-white">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="index.html">CarSense</a>
+
+            <button id="loginBtn" class="btn btn-outline-light ms-2" style="margin-right: 20px;">Login</button>
+            <button id="logoutBtn" class="btn btn-outline-light ms-2" style="display:none; margin-right: 20px">Logout</button>
+
+            <div class="collapse navbar-collapse">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item"><a class="nav-link" href="demo.html">Demo</a></li>
+                    <li class="nav-item"><a class="nav-link" href="features.html">Features</a></li>
+                    <li class="nav-item"><a class="nav-link" href="listen.html">Listen</a></li>
+                    <li class="nav-item"><a class="nav-link" href="scans.html">Scans</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-5 text-center">
+        <h1 class="mb-3">דמו — המערכת בפעולה</h1>
+        <p class="lead mb-4">צפו כיצד CarSense מנתחת רעשי מנוע ומזהה תקלות בזמן אמת.</p>
+
+        <div id="walkthrough" class="video-container mb-5 p-3">
+            <div class="walk-header text-center mb-3">
+                <h4 class="mb-1">מבט מהיר על CarSense</h4>
+                <p class="small text-muted mb-0">דוגמת ממשק והזרימה — אנימציה קצרה במקום וידאו</p>
+            </div>
+
+            <div class="walk-stage bg-dark p-3 rounded">
+                <div class="cars-row" id="carsRow" aria-hidden="true">
+                    <div class="car-card c1"><div class="img"><div class="car-title">טויוטה קאמרי<br>2018</div></div></div>
+                    <div class="car-card c2"><div class="img"><div class="car-title">פורד פוקוס<br>2016</div></div></div>
+                    <div class="car-card c3"><div class="img"><div class="car-title">ניסאן מיקרה<br>2014</div></div></div>
+                </div>
+
+                <div class="scans-panel mt-3" id="scansPanel" aria-hidden="true">
+                    <div class="scans-title">סריקות קודמות</div>
+                    <div class="scan-item">תקלה: רעש חריג | הערות: בדוק רצועת מים</div>
+                    <div class="scan-item">תקלה: תקלה חשמלית | הערות: מתערבב</div>
+                </div>
+
+                <div class="add-panel mt-3" id="addPanel" aria-hidden="true">
+                    <div class="form-line">הוסף רכב חדש</div>
+                    <div class="form-mini"><span class="pill">יצרן</span> <span class="pill">דגם</span> <span class="pill">שנה</span></div>
+                </div>
+
+                <div class="listen-panel mt-3" id="listenPanel" aria-hidden="true">
+                    <div class="listen-badge">האזנה</div>
+                    <div class="listening-dot" id="listDot" aria-hidden="true"></div>
+                </div>
+            </div>
+
+            <div class="walk-footer text-center mt-3 d-none" id="walk-cta">
+                <a href="listen.html" class="btn btn-success btn-lg px-4">התחל סריקה עכשיו</a>
+            </div>
+        </div>
+
+
+
+        <div class="bg-secondary bg-opacity-25 p-4 rounded mb-5 max-width-800 mx-auto" style="max-width: 800px;">
+            <h3 class="mb-3">מה רואים בדמו?</h3>
+            <ul class="text-end d-inline-block">
+                <li>כיצד ה-ESP32 דוגם את רעש המנוע.</li>
+                <li>תהליך העלאת הנתונים לענן (Firebase).</li>
+                <li>ניתוח השמע ע"י מודל ה-AI שלנו.</li>
+                <li>קבלת תוצאה סופית והמלצות לתיקון.</li>
+            </ul>
+        </div>
+
+        <a href="listen.html" class="btn btn-success btn-lg px-5">התחל סריקה עכשיו</a>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="carsense.js"></script>
+    <script>
+        // Walkthrough timeline (~18s) loop
+        (function(){
+            const cards = Array.from(document.querySelectorAll('.car-card'));
+            const scans = document.getElementById('scansPanel');
+            const add = document.getElementById('addPanel');
+            const listen = document.getElementById('listenPanel');
+            const dot = document.getElementById('listDot');
+            const cta = document.getElementById('walk-cta');
+
+            function reset() {
+                cards.forEach(c=>{ c.classList.remove('show','pulse'); });
+                scans.classList.remove('show');
+                add.classList.remove('show');
+                listen.classList.remove('show');
+                dot.classList.remove('active');
+                cta.classList.add('d-none');
+            }
+
+            function runOnce() {
+                reset();
+                // 0s - show cards
+                setTimeout(()=> cards.forEach((c,i)=> setTimeout(()=> c.classList.add('show'), i*200)), 100);
+                // 3.5s - highlight middle card + show scans
+                setTimeout(()=>{
+                    cards[1] && cards[1].classList.add('pulse');
+                    scans.classList.add('show');
+                }, 3500);
+                // 7s - open add form and animate pill
+                setTimeout(()=>{
+                    add.classList.add('show');
+                    const pill = add.querySelector('.pill');
+                    if (pill) pill.classList.add('add');
+                }, 7000);
+                // 11s - switch to listen panel
+                setTimeout(()=>{
+                    listen.classList.add('show');
+                    dot.classList.add('active');
+                    cards.forEach(c=> c.classList.remove('pulse'));
+                }, 11000);
+                // 15s - show CTA
+                setTimeout(()=>{
+                    cta.classList.remove('d-none');
+                }, 15000);
+            }
+
+            // start and loop every 18s
+            runOnce();
+            setInterval(runOnce, 18000);
+        })();
+    </script>
+
+</body>
+</html>
+

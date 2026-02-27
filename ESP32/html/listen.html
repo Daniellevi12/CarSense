@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+
+<head>
+    <meta charset="utf-8">
+    <title>CarSense — Listen AI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #0f0f0f;
+            color: #e0e0e0;
+        }
+        
+        .diagnosis-card {
+            background: rgba(37, 37, 37, 0.9);
+            border-radius: 15px;
+            border-left: 6px solid #198754;
+            /* Success Green */
+        }
+        
+        #debug-log {
+            font-family: monospace;
+            font-size: 11px;
+            height: 150px;
+            overflow-y: auto;
+            background: #000;
+            color: #00ff00;
+            padding: 10px;
+            border: 1px solid #333;
+        }
+    </style>
+</head>
+
+<body class="bg-dark text-white">
+
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark border-bottom border-secondary mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="index.html">CarSense</a>
+
+            <div class="d-flex align-items-center ms-2">
+                <button id="loginBtn" class="btn btn-outline-light me-2">Login</button>
+                <button id="logoutBtn" class="btn btn-outline-light me-2" style="display:none">Logout</button>
+            </div>
+
+            <div class="collapse navbar-collapse">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item"><a class="nav-link" href="demo.html">Demo</a></li>
+                    <li class="nav-item"><a class="nav-link" href="features.html">Features</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="listen.html">Listen</a></li>
+                    <li class="nav-item"><a class="nav-link" href="scans.html">Scans</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-6 text-center">
+
+                <h2 class="mb-4 text-uppercase tracking-widest">מערכת האזנה AI</h2>
+
+                <div id="status" class="badge rounded-pill bg-warning text-dark p-2 mb-3">WAKING UP BRAIN...</div>
+
+                <div class="d-grid gap-2 d-md-block mb-4">
+                    <button id="stop" class="btn btn-primary btn-lg px-5 mx-2" onclick="sendCmd('STOP')">🟦 STOP</button>
+                    <button id="start" class="btn btn-danger btn-lg px-5 mx-2" onclick="sendCmd('START')">🔴 START</button>
+                </div>
+
+                <div class="mb-3 text-center">
+                    <label class="form-label small text-secondary mb-1">בחר רכב להאזנה</label>
+                    <select id="carSelect" class="form-select w-50 mx-auto">
+                        <option value="" selected disabled>בחר רכב</option>
+                    </select>
+                </div>
+
+                <div class="diagnosis-card p-4 shadow-lg mb-4">
+                    <p class="text-secondary small mb-1">תוצאות אבחון</p>
+                    <h1 id="resLabel" class="display-4 fw-bold text-primary">STANDBY</h1>
+                    <p id="resConf" class="lead text-muted">Confidence: 0%</p>
+                </div>
+
+                <div class="text-start">
+                    <label class="small text-secondary mb-1">System Logs:</label>
+                    <div id="debug-log" class="rounded shadow-inner"></div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="carsense.js"></script>
+    <script src="edge-impulse-standalone.js"></script>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const logBox = document.getElementById('debug-log');
+
+        function log(msg) {
+            const time = new Date().toLocaleTimeString().split(' ')[0];
+            logBox.innerHTML += `[${time}] ${msg}<br>`;
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        let classifierInitialized = false;
+        Module.onRuntimeInitialized = function() {
+            log("WASM Runtime Initialized.");
+            classifierInitialized = true;
+        };
+
+        class EdgeImpulseClassifier {
+            async init() {
+                if (classifierInitialized) return Promise.resolve();
+                return new Promise((resolve) => {
+                    Module.onRuntimeInitialized = () => {
+                        resolve();
+                        classifierInitialized = true;
+                    };
+                });
+            }
+
+            classify(rawData, debug = false) {
+                if (!classifierInitialized) throw new Error('Module not initialized');
+                const obj = this._arrayToHeap(rawData);
+                let ret = Module.run_classifier(obj.buffer.byteOffset, rawData.length, debug);
+                Module._free(obj.ptr);
+                if (ret.result !== 0) throw new Error('Classification failed');
+                let jsResult = {
+                    results: []
+                };
+                for (let cx = 0; cx < ret.size(); cx++) {
+                    let c = ret.get(cx);
+                    jsResult.results.push({
+                        label: c.label,
+                        value: c.value
+                    });
+                    c.delete();
+                }
+                ret.delete();
+                return jsResult;
+            }
+
+            _arrayToHeap(data) {
+                let typedArray = new Float32Array(data);
+                let numBytes = typedArray.length * typedArray.BYTES_PER_ELEMENT;
+                let ptr = Module._malloc(numBytes);
+                let heapBytes = new Uint8Array(Module.HEAPU8.buffer, ptr, numBytes);
+                heapBytes.set(new Uint8Array(typedArray.buffer));
+                return {
+                    ptr: ptr,
+                    buffer: heapBytes
+                };
+            }
+        }
+
+        let classifier;
+        let ws;
+
+        async function startApp() {
+            try {
+                classifier = new EdgeImpulseClassifier();
+                await classifier.init();
+                log("AI Brain Loaded.");
+                statusEl.innerText = "AI ONLINE ✅";
+                statusEl.className = "badge rounded-pill bg-success p-2 mb-3";
+                connectWS();
+            } catch (err) {
+                log("Error: " + err.message);
+                statusEl.className = "badge rounded-pill bg-danger p-2 mb-3";
+            }
+        }
+
+        function connectWS() {
+            ws = new WebSocket("wss://esp32serverproject2.onrender.com/?type=Browser");
+            ws.onopen = () => log("WebSocket Connected.");
+            ws.onmessage = async(e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data.audioData) {
+                        log("New Data received...");
+
+                        // 1. Convert Base64 to ArrayBuffer
+                        const base64String = data.audioData.split(',')[1];
+                        const binaryDoc = window.atob(base64String);
+                        const len = binaryDoc.length;
+                        const bytes = new Uint8Array(len);
+                        for (let i = 0; i < len; i++) {
+                            bytes[i] = binaryDoc.charCodeAt(i);
+                        }
+
+                        // 2. Setup Audio Context with fixed sample rate
+                        const audioCtx = new(window.AudioContext || window.webkitAudioContext)({
+                            sampleRate: 16000
+                        });
+
+                        // 3. Decode and handle promise
+                        audioCtx.decodeAudioData(bytes.buffer).then(audioBuffer => {
+                            const float32Data = audioBuffer.getChannelData(0);
+                            log(`Decoded: ${float32Data.length} samples at ${audioBuffer.sampleRate}Hz`);
+                            runInference(float32Data);
+                            audioCtx.close();
+                        }).catch(err => {
+                            log("Decode Error: " + err.message);
+                            audioCtx.close();
+                        });
+                    }
+                } catch (err) {
+                    log("WS Error: " + err.message);
+                }
+            };
+        }
+
+        function runInference(features) {
+            try {
+                const SAMPLES_NEEDED = 16000;
+                let finalFeatures = new Float32Array(SAMPLES_NEEDED);
+
+                // 1. Prepare and Scale data
+                for (let i = 0; i < SAMPLES_NEEDED; i++) {
+                    // If features exist, scale them. If not, pad with 0 (silence)
+                    if (i < features.length) {
+                        finalFeatures[i] = features[i] * 32767;
+                    } else {
+                        finalFeatures[i] = 0;
+                    }
+                }
+
+                // 2. DEBUG STATS - See if audio is actually there
+                let sum = 0;
+                for (let i = 0; i < 100; i++) sum += Math.abs(finalFeatures[i + 500]);
+                log(`Audio Energy (avg of 100): ${sum/100}`);
+
+                // 3. RUN AI
+                const result = classifier.classify(finalFeatures);
+
+                if (result && result.results) {
+                    const top = result.results.sort((a, b) => b.value - a.value)[0];
+                    updateUI(top.label, top.value);
+                    log(`AI WINNER: ${top.label} (${(top.value * 100).toFixed(1)}%)`);
+
+                    document.dispatchEvent(new CustomEvent('ai-result', {
+                        detail: {
+                            label: top.label,
+                            confidence: top.value
+                        }
+                    }));
+                }
+            } catch (err) {
+                log("Inference Error: " + err.message);
+                console.error(err);
+            }
+        }
+
+        function updateUI(label, confidence) {
+            const labelEl = document.getElementById("resLabel");
+            labelEl.innerText = label.toUpperCase();
+            document.getElementById("resConf").innerText = `Confidence: ${(confidence * 100).toFixed(1)}%`;
+
+            // Toggle color based on diagnosis
+            if (label.toLowerCase().includes("normal")) {
+                labelEl.className = "display-4 fw-bold text-success";
+            } else {
+                labelEl.className = "display-4 fw-bold text-danger";
+            }
+        }
+
+        function sendCmd(cmd) {
+            if (ws && ws.readyState === 1) {
+                ws.send(cmd);
+                log("Sent: " + cmd);
+            }
+        }
+
+        window.onload = startApp;
+    </script>
+
+    <script type="module">
+        import { pushScan } from './carsense.js'; document.addEventListener('ai-result', (e) => { try { const sel = document.getElementById('carSelect'); if (!sel) return; const carId = sel.value; if (!carId) return; const label = e.detail && e.detail.label ?
+        e.detail.label : 'unknown'; pushScan(carId, label); const debug = document.getElementById('debug-log'); if (debug) { debug.innerHTML += `[${new Date().toLocaleTimeString()}] Saved scan: ${label} for car ${carId}<br>`; } } catch (err) {
+        console.error('pushScan failed', err); } });
+    </script>
+</body>
+
+</html>
